@@ -1,0 +1,100 @@
+#!/bin/bash
+
+dir=$path
+
+export ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=1
+
+echo "Utilize how many cores? "
+read num
+
+
+mnibrain={$1:-/shared/studies/nonregulated/connectome/NeMo/mni/MNI152_T1_1mm_brain.nii.gz}
+mnihead={$2:-/shared/studies/nonregulated/connectome/NeMo/mni/FSL_MNI152_FreeSurferConformed_1mm_head.nii.gz}
+echo "Provide file name where to log problematic scan ids "
+read log_file
+issues=$dir/subject_lists/$log_file
+# TO do: remove 2nd line in spring 2020
+#######swap these lines to prioritize scans for conscientiousness
+#[ -d $dir/calculations ] && ids=$dir/subject_lists/ms_ids.csv || ids=$dir/subject_lists/all_ids.csv
+[ -d $dir/calculations ] && ids=$dir/subject_lists/matched_c_ms_hc_scan_ids.csv || ids=$dir/subject_lists/matched_c_ms_hc_scan_ids.csv
+
+
+echo ""
+echo "Running inpainted on all scans..."
+
+# for i in $( cat $ids ); do
+# 	#cd into each subject's directory and create the t1_inp
+# 	cd $dir/subjects/$i
+# 	if [ ! -f "t1_inp.nii.gz" ];
+# 	then
+# 	make -f $DTIPATH/scripts/lpa_make
+# 	fi
+# 	cd $DTIPATH
+# done
+
+echo ""
+echo "Running makefile on all scans..."
+
+
+for i in $( cat $ids ); do
+echo $i
+if [[ ! -f "t1_inp.nii.gz" && -f "t1.nii.gz" ]];
+	then
+	echo $i "creating lesion inpainted T1"
+	echo $i "creating lesion inpainted T1" >> $issues
+	sem --env ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS -j $num make -f $DTIPATH/scripts/T1_makefile MNI_brain.nii.gz=$mnibrain FSL_MNI152_FreeSurferConformed_1mm_head.nii.gz=$mnihead
+	fi
+done
+
+
+for i in $( cat $ids ); do
+	#cd into each subject's directory and run the makefile
+	cd $dir/subjects/$i
+	echo $i+": attempting processing" >> $issues
+	if [[ ! -f "t1_inp.nii.gz" && ! -f "lesion_mask.nii.gz" ]];
+	then
+	echo $i+": no inpainted and no lesion mask" >> $issues
+	cd $DTIPATH
+	continue
+	
+	elif [[ ! -f "t1_inp.nii.gz" && -f "t1.nii.gz" ]];
+	then
+	echo $i+": inpainted not created" >> $issues
+	cd $DTIPATH
+	continue
+
+	elif [ ! -f "dti.nii.gz" ];
+	then
+	echo $i+": no dti" >> $issues
+	cd $DTIPATH
+	continue
+	elif [ ! -f "dti.dcmdir.tgz" ];
+	then
+	echo $i+": no dicom" >> $issues
+	cd $DTIPATH
+	continue
+	elif [ -f "dti_FA_to_MNI.nii.gz" ];
+	then
+	cd $DTIPATH
+	continue
+	fi
+	#parallelization
+
+	#	make -n -f $DTIPATH/scripts/Makefile
+	sem --env ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS -j $num make -f $DTIPATH/scripts/Makefile MNI_brain.nii.gz=$mnibrain FSL_MNI152_FreeSurferConformed_1mm_head.nii.gz=$mnihead
+
+	if [ ! -f "dti_FA_to_MNI.nii.gz" ];
+	then
+	echo $i+"error in processing" >> $issues
+	fi
+	cd $DTIPATH
+done
+
+sem --wait
+
+echo ""
+echo "------------"
+echo "To view images for quality control, run"
+echo "> bash Quality_check.sh"
+echo "------------"
+echo ""

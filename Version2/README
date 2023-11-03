@@ -1,0 +1,306 @@
+In which processing is explained..
+
+TABLE OF CONTENTS
+- Section 1 -> Preliminary remarks
+- Section 2 -> Some timing estimates
+- Section 3 -> Step by step instructions
+- Section 4 -> More detailed descriptions of all necessary and/or highly useful scripts 
+
+###
+Section 1
+###
+
+A few preliminary remarks:
+  -> Tom and Kat looked through the processing on 10/12/2019 and have made sure that the ouputs look as expected on a sample size pf 4 scanIds from the neurostream database. The process followed each step in the processing, where they confirmed that the registarion and results were as expected
+  -> EVERY TIME YOU COME WANT TO DO ANYTHING WITH THESE SCRIPTS IN A NEW SHELL YOU MUST RUN 
+     > source /shared/studies/nonregulated/connectome/dti_fa/DTI_processing_application/activate
+     - FROM WITHIN YOUR PROJECT DIRECTORY
+     - IF YOU DON'T NOTHING WILL WORK
+     - YOU WILL WEEP
+  -> If you are using an existing healthy control average and standard deviation brain, copy those two files
+     into a directory called "calculations" in your project directory. The script will skip the 
+     hc average step if there is already a calculations directory present
+  -> These scripts rely on proper naming convention
+     - Directory structure and naming are NOT suggestions
+  -> Each script that is run will prompt for input files and output files (if one is needed)
+  -> A healthy control average of 37 subjects 15 dir dti exists in
+     - dti_fa/DTI_processing_application/calculations
+     - Copy this folder into a project directory at your leisure 
+     - list of IDs used to create this also in calculations directory 
+  -> To create lists (specifically for neurostream) of hc/ms subjects the neurostream_diffusion_processing.ipynb was used
+
+###
+Section 2
+###
+
+TIMING ESTIMATES
+-- roughly how long this whole shebang should take --
+
+  -> Makefile
+     - Single case on a single core: 20 hours
+
+  -> calcDev
+     - Single scan: 15 minutes
+
+  -> nemoProc
+     - One scan on a single core: 4-5 hours 
+    
+###
+Section 3
+###
+
+WORKFLOW 
+
+1.) Assemble project directory
+    -> create a project directory, must contain the following:
+       - A directory called subjects, contains the subject files organized by exam id
+       - A directory called subject_lists, contains the following lists:
+         - a list of all ms exam ids
+         - a list of all healthy control exam ids
+         - a list of all exam ids being processed, ms and hc
+       - the lists will be passed in when running any script
+       - An example directory that was assembled is for dti_fa/neurostream database. A notebook to create the lists can be found
+         at neurostream_diffusion_processing.ipynb
+
+2.) source /shared/studies/nonregulated/connectome/dti_fa/DTI_processing_application/activate
+    -> call from the root of your project directory to have access to 
+       all dti processing scripts
+
+3.) some downloading
+    -> At this point, you need to populate those subject folders with raw files. The requisite files
+       and their naming conventions are as follows:
+       - dti.nii.gz -> native diffusion image
+       - dti.dcmdir.tgz -> dicoms
+       - t1.nii.gz -> t1 non inpainted
+       - t1_inp.nii.gz -> t1 lesion inpainted (if the scan has it)
+       - t2flair.nii.gz -> the flair used to create t1 lesion inpainted (if there is no already existing file)
+
+4.) dtiProc.sh
+    -> This script takes a heck of a long time
+    -> Requires user provides the file names to the ms_list, hc_list, and a file where errors can be logged to
+    -> Calls LPA tool to extract a lesion mask if t1_inp.nii.gz does not exist, requires t2flair.nii.gz
+    -> Will run a makefile on every scan that extracts FA, and registers to MNI space among other things
+    -> For more details on what it does see the makefile, T1_makefile, and lpa_make in /scripts
+    -> This script has many conditional checks to speed up processing as much as possible. when the checks fail, the
+        issue is logged accordingly.  
+    -> Output will be an FA map in the MNI space for each scan id given 
+    
+    *To see progress of dtiProc.sh see checkProgressDtiProc.sh
+    
+5.) reviewProcCompleteList.sh
+    -> calcDev.sh needs to be provided a list where all the scan ids have fully processed FA_to_MNI.nii.gz
+    -> Since the previous step monitors for missing files or errors not all scan ids finish processing
+    -> Must provide both hc and ms lists used, as well as new hc and ms list names for the completed
+    -> when future steps ask for ms and hc lists, use the new names that were provided here
+    
+6.) calcDev.sh 
+    -> Call after dtiProc.sh finishes and lists are reviewed in reviewProcCompleteList.sh
+    -> Provide list names that were generated in the previous step
+    -> In order to quantify white matter damage, FA maps will be converted to maps of deviation
+    -> the calculations take a long time, requires white matter masking which takes about 10 minutes per
+    -> see script description for more details on what it does 
+    -> Output will be a white matter masked map of deviation in FA intensity from the healthy 
+       control average for all MS scans 
+       -> masked_final_deviation.nii.gz
+    
+7.) qc.sh
+    -> This script generates images of output for manual quality control
+    -> will output three images per scan
+       -> Original FA, important to check for scan abnormalities that have been smoothed out 
+          in registration, but will impact future analysis 
+       -> Registered FA, final registered output of the makefile
+       -> Final deviation output
+    -> look through all scans and check for visible abnormalities 
+    -> creates a pdf containing all images organized by exid
+    -> not required but strongly encouraged 
+    * pro tip * 
+    -> The browser on donut is really slow, open the pdf locally 
+    
+8.) qcEntry.sh
+    -> Allows one to easily record failed images when manually inspecting the qc output
+    -> see script description for more details on how it works
+    -> if you run it, it basically tells you what to do
+9.) reviewDtiCalcDevCompleteList.sh
+
+10.) nemoProc.sh
+    -> this script will produce files ready to be run in NeMo as well as the requisite NeMo scripts
+    -> will ask how many instances you wish to run, by which it means how many cores you'd like to run 
+       the program on 
+    -> will call a helper script to automatically generate parallel nemo scripts 
+    -> After running the nemo_processing script, there will be several scripts in the 
+       /shared/studies/nonregulated/connectome/NeMo/resources directory 
+       named as such: <name>_dti_chaco_script1.m
+    -> There will default_outputbe one script for each core NeMo is going to be running on
+    -> Scans will be evenly distributed between the scripts
+    -> Scripts will be run in parallel automatically following their creation
+    -> output found in the default_output directory of each subject 
+    -> Note: that the output of the deviation is resampled over a lower resolution MNI space
+
+11.) disconCalc.sh
+    -> creates csv outputs for each subject. located in proj_dir/sub_id/disconnection/nemo_pairwise_disconn_percentage.csv
+    -> each csv has two columns: ['paired_region','percent_disconnection']
+    -> creates a master csv for all subjects located in proj_dir/disconnection_full/full_nemo_pairwise_discon_percentage.csv
+    -> the comlumns are [sub_id ... (all pairings of connected regions as taken from the atlas)
+    -> This file has some useful functions to be able to use atlas86 in a multitude of ways. 
+    -> The atlas comes from /shared/studies/nonregulated/connectome/NeMo/notebooks/atlas86.cod
+    
+12.) pairAvg.sh
+     -> This gets you pairwise average fa deviation for a given network
+     -> The pairs in the network must be listed in a csv 
+        - naming convention -- <some measure>_pairs.csv
+        - must be located in a directory you create called data, within project dir
+        - format must be pairs of numbers represinting their index in the atlas86
+        - I have a script to clean it up if all you have is a list of pairs that includes labels
+        - see: clean.sh in script descriptions below
+        - all output will be found in the same data directory you created above 
+
+11.) Final thoughts..
+     -> If you can make modifications to the code to make any part of this go faster god bless you
+     -> The chacocalc scripts only work if they're located in NeMo/resources for some ungodly reason
+
+###
+Section 4
+###     
+
+DESCRIPTION OF ALL SCRIPTS
+
+> activate
+  - Source before running anything FROM ROOT OF PROJECT DIRECTORY
+  - Adds FSL libraries to path 
+  - Adds ants library to path 
+  - Adds location of DTI processing scripts to path 
+  - Exports project path as environment variable to be accessed by all scripts
+  - NOTE: Technically the directory containing these processing scripts could be located anywhere.
+          As long as your source the activate script everything will work regardless of locale.
+          The caveat to this is that the resources accessed in the activate script are hard coded
+          to the donut file structure. If you're on a different file structure, the paths to sourced
+          resources in activate must be changed.
+
+> bash dtiProc.sh
+  - Runs lpa_make to use the LPA tool if t1_inp has to be created
+  - Runs the makefile on all scans who's IDs exist in the list all_ids.csv
+  - Parallelizes execution to as many cores as you indicate 
+  - NOTE: This script has a bonus feature! While the default standard MNI brain and head images used for registration
+          are located in /connectome/NeMo/mni, you can optionally call this script with the absolute paths to the brain and head
+          respectively as command line arguments if the MNI brain and head you wish to use are located somewhere else
+ 
+> Makefile
+  - Performs all registrations on raw DTI files 
+  - Steps are as follows:
+    - Eddy correction
+    - FA extracted
+    - N4 bias correct non inpainted T1 (twice)
+    - If T1_inp isn't there, it will create it from the t2flair and the leison mask
+    - Apply brain mask
+    - FA registered to T1 using hi res T1 as reference
+    - Inpainted image used to create t1 to MNI registration
+    - T1 to MNI registration applied to FA maps
+  - If you want to look at previous working makefile versions, see
+        - /connectome/dti_fa/DTI_processing_application/script/olderMakefileVersions
+  - If for whatever reason you want to look at previous makefile versions, see 
+        - /connectome/dti_fa/DTI_processing_application/archive
+        
+> lpa_make
+  - to be run on all subjects that do not have a t1_inp file. 
+  - takes in a t2flair file 
+  - Steps as so:
+      - unzips the T2flair
+      - extracts the lesions using the LPA tool. Calls run_lpa
+      - fills lesions using double threshold
+  - called by dtiProc.sh 
+  
+> bash calcDev.sh 
+  - NOTE: this is a shell script wrapper for Calc_FA_deviation.py located in scripts directory 
+  - This script is called automatically following FA extraction to output processed and regressed matrices
+  - This script will perform multiple transformations and calculations, updating you as it does, 
+    until it generates a logistically regressed z score map for every scan. 
+  - Steps are as follows:
+	- Calculate average of healthy control FA
+	- Calculate standard deviation of healthy control FA
+	- Generate white matter masks for all MS scans
+	- Calculate z score of each MS image from HC mean
+	- Apply white matter mask to z score images
+	- Zero out any voxels with a positive z score 
+        - Negate, make all values positive
+	- Resize scans to NeMo dimensions
+	- Zero out any voxels less than 1.5 standard deviations from the mean 
+        - Logistically transform, scale values from 0 (no damage) to 1 (completely disconnected)
+	- Negate, NeMo expects values between 0 and -1
+	- Apply slightly dilated mask to final image to eliminate erroneously deviated voxels at the edge of the scans
+
+> python qc_output.py
+  - Exists in scripts folder
+  - Exports images so they can be viewed for quality control
+  - Uses nilearns python tools to export nifti images lpa_maketo pngs, stored in qc directory 
+  - Is called automatically no need to run 
+
+> bash qc.sh
+  - This script lets you view the output images at 3 different steps in the process.
+  - Images are coded into an HTML page and then converted to a pdf 
+  - View in any browser or pdf viewer  
+
+> bash qcEntry.sh
+  - Call to record results of manual quality control
+  - Will ask for 3 user inputs after running:
+    - clear name for your output csv 
+    - the line number you wish to start at in said list. if you're starting from the begining, enter 1
+    - if for some reason you quit the manual inspection script, it will tell you what line you left off at when you did so
+    - simply enter that number to pick up where you left off 
+    - if you don't remember you're sol
+    - just kidding I'd recommend just looking at the line number of the last id you checked and adding 1 to that 
+    - haha
+  - As each EXid is printed to the console, enter either a p for pass if the image is of acceptable quality, or f is it is not
+  - To quit the script enter q and it will output the line number to start on when you pick back up
+  - to skip to the next id with no action enter n
+    - this won't usually be useful but if for some reason you're missing a scan that is present in the list you might want 
+      to skip it entirely, I don't know. The feature is there, do with it what you will
+  - output is a csv with 2 columns, exid and 0 or 1 indicating whether a scan was marked pass or fail (1=pass)
+
+> bash nemoProc.sholderMakefileVersions
+  - NOTE: this is a shell script wrapper for NeMo_processing.py located in scripts directory
+  - In order to run in nemo, the final files must be unzipped and resized. this script takes care of that. 
+  - Asks for number of parallel NeMo scripts you wish to create 
+
+> bash nemo_scripts.sh
+  - Exists in scripts folder
+  - This script generates the matlab scripts that will run chacocalc on all scans
+  - Called automatically by nemo_processing.py
+  - basically just writes them by hand in a loop, not cute but effective 
+
+> bash paraRun.sh
+  - Called automatically 
+  - Runs the generated chacocalc scripts in parallel using gnu parallel tool 
+  - Runs as many jobs as specified by the user input 
+
+> bash chacoRun.sh
+  - called by paraRun automatically to run parallel chacocalc scripts
+  - since NeMo is matlab nonsense, this script wraps calling matlab scripts neatly
+  - runs matlab with no gui and automatically runs the pertinent matlab script so you never 
+    have to touch matlab 
+  - you're hecking welcome
+  
+> bash clean.sh <name of list of pairs>
+  - Given a list of atlas86 pairs for a given network produces a list of pairs of indices 
+  - used as input for pair_avg to calculate mean pairwise disconnection 
+  - run with name of list of pairs as command line input
+
+> bash pairAvg.sh
+  - takes a list of pair indices and calculates the mean within network disconnection for all subjects
+  - must be numbers only, generated by clean script 
+  
+> bash run_lpa.m
+  - called by lpa_make automatically to make the flair of the leisions using the lpa tool
+  
+> double_threshold.py
+  - called by lpa_make automatically
+  - took from the functional_decline_predictor_tool project
+  - original place is /shared/studies/nonregulated/connectome/functional_decline_predictor_tool/subjects/scripts/subjects/scripts
+  
+> bash disconCalc.sh
+  - takes all subjects post nemo processing and calculates % disconnection per connected pair from atlas86. 
+  - outputs individual CSVs per subject and a master csv containing all subjects
+  
+> calcDiscon.py
+  - automatically called by disconCalc.sh
+  - has several atlas86 utilizng functions
+  - creates csvs for each subject and a master one

@@ -1,0 +1,453 @@
+In which processing is explained..
+
+TABLE OF CONTENTS
+- Section 1 -> Preliminary remarks
+- Section 2 -> Some timing estimates
+- Section 3 -> Quick intro to Screen command to run all files, needed for section 4
+- Section 4 -> Step by step instructions
+- Section 5 -> More detailed descriptions of all necessary and/or highly useful scripts 
+- Section 6 -> Bonus (fun/cool/make life easier) scripts 
+
+#############
+# Section 1 #
+#############
+
+A few preliminary remarks:
+  - Tom and Kat looked through the processing on 10/12/2019 and have made sure that the ouputs look as expected on a sample size pf 4 scanIds from the neurostream database. The process followed each step in the processing, where they confirmed that the registarion and results were as expected
+  - EVERY TIME YOU COME WANT TO DO ANYTHING WITH THESE SCRIPTS IN A NEW SHELL YOU MUST RUN 
+     -> $ source /shared/nonrestricted/connectome/dti_fa/DTI_processing_application/activate
+     - FROM WITHIN YOUR PROJECT DIRECTORY
+     - IF YOU DON'T NOTHING WILL WORK
+     - YOU WILL WEEP
+  - If you are using an existing healthy control average and standard deviation brain, copy those two files
+     into a directory called "calculations" in your project directory. The script will skip the 
+     hc average step if there is already a calculations directory present
+  - These scripts rely on proper file naming convention
+     - Directory structure and naming are NOT suggestions
+  - Each script that is run will prompt for input files and output files (if one is needed)
+  - A healthy control average of 37 subjects 15 dir dti exists in
+     - dti_fa/DTI_processing_application/calculations
+     - Copy this folder into a project directory at your leisure 
+     - list of IDs used to create this also in calculations directory 
+  - To create lists (specifically for neurostream) of hc/ms subjects the scripts/neurostream_diffusion_processing.ipynb was used
+      by Kira
+  - Tom and Kat used a longitudunal db located in neurostream/databases/ms_base_conscientiousness_assesment_26nov2019.Rmd made
+      from db named MASTER_MSBase_Buffalo_07-25-2018_MSCIS.csv. the R script generated a list of Subject IDs,Mri_date which 
+      were converted to scan IDs using the script 
+          -> $ bash getBluesky.sh
+          
+    - Written by Kira Ashton and Kateryna Semenova
+
+#############
+# Section 2 #
+#############
+
+TIMING ESTIMATES
+-- roughly how long this whole shebang should take --
+
+  -> Makefile
+     - Single case on a single core: 24 hours
+
+  -> calcDev
+     - Single scan: 15 minutes
+
+  -> nemoProc
+     - One scan on a single core: 4-5 hours 
+     
+#############
+# Section 3 #
+#############    
+
+1) What is screen?
+    -Screen or GNU Screen is a terminal multiplexer. It means that you can start a screen session and then open any number 
+    of windows (virtual terminals) inside that session. Processes running in Screen will continue to run when their window 
+    is not visible even if you get disconnected.
+    
+2) Why use it?
+    - Allows us to run processes so that they are not dependant on whether the machine is on or not, runs everything 
+    remotely on donut. Recomended that this is used for steps 4, 6, 10, 11, 12.
+    
+3) New Screen connection 
+    -> $ screen 
+    - follow by two spacebar presses
+    - navigate to our directory and run scripts you want 
+    - remember to source /shared/nonrestricted/connectome/dti_fa/DTI_processing_application/activate
+
+4) Detaching from screen
+    - press "ctrl + a" followed by "ctrl + d"
+    - used for once the script is running and you want to leave it alone
+    - able to reattach to the screen at any time
+    
+5) Re-attaching to the screen
+    - if there is one screen then:
+        -> $ screen -r
+    - if there are multiple screens (it will tell you) 
+        - to find out all the screens that exist:
+        -> $ screen -ls
+        - then select the screen you want to reattach by followed by its name (from the previous step):
+        -> $ screen -r [7 numbers].pts
+        - example screen name: 2570439.pts-139.donut
+    - to exit see step 4
+
+6) Killing a screen 
+    - Important: stop all scripts running first
+    - When you are attached to a screen session:
+        - press "ctrl + a" and then "k", it will then ask you 'y/n' type 'y'
+        - screen should be dead and can be removed with:
+        -> $ screen -wipe
+    - If killing the screen is not successful try one or both of the following commands
+        -> $ screen -x -s [screen name] kill
+        -> $ screen -s [screen name] -p -o -x quit
+
+7) To see all screens that exist and their status
+    -> $ screen -ls
+    
+
+#############
+# Section 4 #
+#############
+
+WORKFLOW 
+
+1.) Assemble project directory
+    - Create a project directory, must contain the following:
+       - A directory called subjects, contains the subject files organized by exam/scan id
+       - A directory called subject_lists, contains the following lists:
+         - a list of all ms exam ids
+         - a list of all healthy control exam ids
+         - a list of all exam ids being processed, ms and hc
+       - the lists will be passed in when running any script
+       - An example directory that was assembled is for dti_fa/neurostream database. A notebook to create the lists can be found
+         at neurostream_diffusion_processing.ipynb
+
+2.) source /shared/nonrestricted/connectome/dti_fa/DTI_processing_application/activate
+    - call from the root of your project directory to have access to 
+       all dti processing scripts
+
+3.) some downloading
+    - At this point, you need to populate those subject folders with raw files. The requisite files
+       and their naming conventions are as follows:
+       - dti.nii.gz -> native diffusion image
+       - dti.dcmdir.tgz -> dicoms
+       - t1.nii.gz -> t1 non inpainted
+       - t1_inp.nii.gz -> t1 lesion inpainted (if the scan has it)
+       - t2flair.nii.gz -> the flair used to create t1 lesion inpainted (if there is no already existing t1_inp.nii.gz) 
+    
+4.) dtiProc.sh
+    - This script takes a heck of a long time
+    - Requires user provides the file names to the ms_list, hc_list, and a file where errors can be logged to
+    - Calls LPA tool to extract a lesion mask if t1_inp.nii.gz does not exist (requires t2flair.nii.gz)
+    - Will run a makefile on every scan that extracts FA, and registers to MNI space among other things
+    - For more details on what it does see the makefile, T1_makefile, and lpa_make in /scripts
+    - This script has many conditional checks to speed up processing as much as possible. when the checks fail, the
+        issue is logged accordingly.  
+    - Output will be an FA map in the MNI space for each scan id given 
+    
+    - Note: on stopping this script mid run: since it uses several cores/threads, just clicking "ctrl + z" won't work and
+      you must either stop each task 1 by 1 or call the following script (see section 5 for more)
+          -> $ bash kill_all_for_user.sh
+          -Second Note: this script will terminate ALL scripts you are running on donut, so if you have other things 
+           running use with caution
+           
+    * To see progress of dtiProc.sh see checkProgressDtiProc.sh
+    
+5.) reviewDtiProcCompleteList.sh
+    - calcDev.sh needs to be provided a list where all the scan ids have fully processed FA_to_MNI.nii.gz
+    - Since the previous step monitors for missing files or errors, not all scan ids finish processing
+    - Must provide both hc and ms lists used, as well as new hc and ms list names for the completed lists
+    * when future steps ask for ms and hc lists, use the new names that were provided here
+    
+6.) calcDev.sh 
+    - Call after dtiProc.sh finishes and lists are reviewed in reviewProcCompleteList.sh
+    - Provide list names that were generated in the previous step
+    - In order to quantify white matter damage, FA maps will be converted to maps of deviation
+    - the calculations take a long time, requires white matter masking which takes about 10 minutes per
+    - see script description for more details on what it does 
+    - Output will be a white matter masked map of deviation in FA intensity from the healthy 
+       control average for all MS scans 
+       -> masked_final_deviation_fsmni.nii.gz
+       
+       
+    * To see progress of calcDev.sh see checkProgressCalcDev.sh
+    
+7.) qc.sh
+    - This script generates images of output for manual quality control
+    - will output three images per scan
+       - Original FA, important to check for scan abnormalities that have been smoothed out 
+          in registration, but will impact future analysis 
+       - Registered FA, final registered output of the makefile
+       - Final masked deviation output
+    - look through all scans and check for visible abnormalities 
+    - creates a pdf containing all images organized by exid
+    - not required but strongly encouraged 
+    * pro tip * 
+    -> The browser on donut is really slow, open the pdf locally 
+    
+8.) qcEntry.sh
+    - Allows one to easily record failed images when manually inspecting the qc output
+    - see script description for more details on how it works
+    - if you run it, it basically tells you what to do
+    
+9.) reviewCalcDevCompleteList.sh
+    - nemoProc.sh needs to be provided a list where all the scan ids have fully processed masked_final_deviation.nii.gz
+    - Since the previous step monitors for missing files or errors, not all scan ids finish processing
+    - Must provide both hc and ms lists used, as well as new hc and ms list names for the completed lists
+    * when future steps ask for ms and hc lists, use the new names that were provided here are now used
+    
+10.) nemoProc.sh
+    - this script will produce files ready to be run in NeMo as well as the requisite NeMo scripts
+    - will ask how many instances you wish to run, by which it means how many cores you'd like to run the program on 
+    - will call a helper script to automatically generate parallel nemo scripts 
+    - After running the nemo_processing script, there will be several scripts in the 
+       /shared/nonrestricted/connectome/NeMo/resources directory 
+       named as such: <name>_dti_chaco_script1.m
+    - There will default_outputbe one script for each core NeMo is going to be running on
+    - Scans will be evenly distributed between the scripts
+    - Scripts will be run in parallel automatically following their creation
+    - output found in the default_output directory of each subject 
+    - Note: that the output of the deviation is resampled over a lower resolution MNI space
+
+11.) disconCalc.sh
+    - creates csv outputs for each subject. located in proj_dir/sub_id/disconnection/nemo_pairwise_disconn_percentage.csv
+    - each csv has two columns: ['paired_region','percent_disconnection']
+    - creates a master csv for all subjects located in proj_dir/disconnection_full/full_nemo_pairwise_discon_percentage.csv
+    - the comlumns are [sub_id ... (all pairings of connected regions as taken from the atlas)
+    - This file has some useful functions to be able to use atlas86 in a multitude of ways. 
+    - The atlas comes from /shared/nonrestricted/connectome/NeMo/notebooks/atlas86.cod
+    
+12.) pairAvg.sh
+     - This gets you pairwise average fa deviation for a given network
+     - The pairs in the network must be listed in a csv 
+        - naming convention -- <some measure>_pairs.csv
+        - must be located in a directory you create called data, within project dir
+        - format must be pairs of numbers represinting their index in the atlas86
+        - I have a script to clean it up if all you have is a list of pairs that includes labels
+        - see: clean.sh in script descriptions below
+        - all output will be found in the same data directory you created above 
+
+11.) Final thoughts..
+     - If you can make modifications to the code to make any part of this go faster god bless you
+     - The chacocalc scripts only work if they're located in NeMo/resources for some ungodly reason
+
+#############
+# Section 5 #
+#############     
+
+DESCRIPTION OF ALL SCRIPTS
+    - ordered in order of usage, note some 
+> activate
+  - Source before running anything FROM ROOT OF PROJECT DIRECTORY
+  - Adds FSL libraries to path 
+  - Adds ants library to path 
+  - Adds location of DTI processing scripts to path 
+  - Exports project path as environment variable to be accessed by all scripts
+  - NOTE: Technically the directory containing these processing scripts could be located anywhere.
+          As long as your source the activate script everything will work regardless of locale.
+          The caveat to this is that the resources accessed in the activate script are hard coded
+          to the donut file structure. If you're on a different file structure, the paths to sourced
+          resources in activate must be changed.
+
+> bash dtiProc.sh
+  - Runs lpa_make to create a lesion_mask that is used to create t1_inp.nii.gz
+  - Runs T1_makefile to create t1_inp.nii.gz if one does not exist
+  - Runs the makefile on all scans who's IDs exist in the list all_ids.csv
+  - Parallelizes execution to as many cores as you indicate 
+  - NOTE: This script has a bonus feature! While the default standard MNI brain and head images used for registration
+          are located in /connectome/NeMo/mni, you can optionally call this script with the absolute paths to the brain and head
+          respectively as command line arguments if the MNI brain and head you wish to use are located somewhere else
+
+> T1_makefile
+    - Uses the lesion_mask and the t2flair to create the t1_inp.nii.gz
+    - Steps as follows (roughly):
+        - unzips the t2flair
+        - reorients and corrects the t1.nii.gz
+        - registers t2flair to t1 space
+        - register lesion mask into the t1 space
+        - inpaints the lesions
+    
+> Makefile
+    -Performs all registrations on raw DTI files 
+    -Steps are as follows:
+        - Eddy correction
+        - FA extracted
+        - N4 bias correct T1 (twice)
+        - Apply brain mask
+        - FA registered to T1 
+        - Inpainted image used to create t1 to MNI registration
+        - T1 to MNI registration applied to FA maps
+  - If you want to look at previous working makefile versions, see
+        - /connectome/dti_fa/DTI_processing_application/script/olderMakefileVersions
+        
+> lpa_make
+  - to be run on all subjects that do not have a t1_inp file. 
+  - takes in a t2flair file 
+  - Steps as so:
+      - unzips the T2flair
+      - extracts the lesions using the LPA tool. Calls run_lpa
+      - fills lesions using double threshold
+  - called by dtiProc.sh 
+  calls run_lpa.m and double_threshold.py
+    > run_lpa.m
+      - called by lpa_make automatically to make the flair of the leisions using the lpa tool
+
+    > double_threshold.py
+      - called by lpa_make automatically
+      - took from the functional_decline_predictor_tool project
+      - original place is /shared/nonrestricted/connectome/functional_decline_predictor_tool/subjects/scripts/subjects/scripts
+
+> bash checkProgressDtiProc.sh
+    - Helpful script to see how many scans are left to be processed by DtiProc.sh
+    - It will prompt you to provide a name of a list for which scanId's to check 
+    - Prints out a formatted summary of the output, also explains why some files did not run
+
+> bash reviewDtiProcCompleteList.sh
+    - Post dtiProc.sh it is not guranteed that all files will be processed to the end because errors
+    may occur randomly
+    - This script refines the inputted lists and outputs two new lists for ms and hc
+    - checks if dti_FA_to_MNI.nii.gz exists or not
+
+> bash calcDev.sh 
+    - NOTE: this is a shell script wrapper for Calc_FA_deviation.py located in scripts directory 
+    - This script is called automatically following FA extraction to output processed and regressed matrices
+    - This script will perform multiple transformations and calculations, updating you as it does, 
+    until it generates a logistically regressed z score map for every scan.
+    - Steps are as follows:
+        - Calculate average of healthy control FA
+        - Calculate standard deviation of healthy control FA
+        - Generate white matter masks for all MS scans
+        - Calculate z score of each MS image from HC mean
+        - Apply white matter mask to z score images
+        - Zero out any voxels with a positive z score 
+        - Negate, make all values positive
+        - Resize scans to NeMo dimensions
+        - Zero out any voxels less than 1.5 standard deviations from the mean 
+        - Logistically transform, scale values from 0 (no damage) to 1 (completely disconnected)
+        - Negate, NeMo expects values between 0 and -1
+        - Apply slightly dilated mask to final image to eliminate erroneously deviated voxels at the edge of the scans
+
+> bash checkProgressCalcDev.sh
+    - Helpful script to see how many scans are left to be processed by calcDev.sh
+    - It will prompt you to provide a name of a list for which scanId's to check 
+    - Prints out a formatted summary of the output, also explains why some files did not run
+
+> bash reviewCalcDevCompleteList
+    - Post calcDev.sh it is not guranteed that all files will be processed to the end because errors
+    may occur randomly
+    - This script refines the inputted lists and outputs two new lists for ms and hc
+    - checks if masked_final_deviation.nii.gz exists or not
+
+> bash qc.sh
+    - This script lets you view the output images at 3 different steps in the process.
+    - Images are coded into an HTML page and then converted to a pdf 
+    - View in any browser or pdf viewer 
+    
+    > python qc_output.py
+        - Exists in scripts folder called by qc.sh
+        - Exports images so they can be viewed for quality control
+        - Uses nilearns python tools to export nifti images lpa_maketo pngs, stored in qc directory 
+        - Is called automatically no need to run 
+
+> bash qcEntry.sh
+  - Call to record results of manual quality control
+  - Will ask for 3 user inputs after running:
+    - clear name for your output csv 
+    - the line number you wish to start at in said list. if you're starting from the begining, enter 1
+    - if for some reason you quit the manual inspection script, it will tell you what line you left off at when you did so
+    - simply enter that number to pick up where you left off 
+    - if you don't remember you're sol
+    - just kidding I'd recommend just looking at the line number of the last id you checked and adding 1 to that 
+    - haha
+  - As each EXid is printed to the console, enter either a p for pass if the image is of acceptable quality, or f is it is not
+  - To quit the script enter q and it will output the line number to start on when you pick back up
+  - to skip to the next id with no action enter n
+    - this won't usually be useful but if for some reason you're missing a scan that is present in the list you might want 
+      to skip it entirely, I don't know. The feature is there, do with it what you will
+  - output is a csv with 2 columns, exid and 0 or 1 indicating whether a scan was marked pass or fail (1=pass)
+
+> bash nemoProc.sh
+  - NOTE: this is a shell script wrapper for NeMo_processing.py located in scripts directory
+  - In order to run in nemo, the final files must be unzipped and resized. this script takes care of that. 
+  - Asks for number of parallel NeMo scripts you wish to create 
+
+> bash nemo_scripts.sh
+  - Exists in scripts folder
+  - This script generates the matlab scripts that will run chacocalc on all scans
+  - Called automatically by nemo_processing.py
+  - basically just writes them by hand in a loop, not cute but effective 
+
+> bash paraRun.sh
+  - Called automatically by nemoProc.sh
+  - Runs the generated chacocalc scripts in parallel using gnu parallel tool 
+  - Runs as many jobs as specified by the user input 
+
+> bash chacoRun.sh
+  - called by paraRun.sh automatically to run parallel chacocalc scripts
+  - since NeMo is matlab nonsense, this script wraps calling matlab scripts neatly
+  - runs matlab with no gui and automatically runs the pertinent matlab script so you never 
+    have to touch matlab 
+  - you're hecking welcome
+  
+> bash clean.sh <name of list of pairs>
+  - Given a list of atlas86 pairs for a given network produces a list of pairs of indices 
+  - used as input for pair_avg to calculate mean pairwise disconnection 
+  - run with name of list of pairs as command line input
+
+> bash pairAvg.sh
+  - NOTE: this is a shell script wrapper for pairwiseAvg.py
+  - takes a list of pair indices and calculates the mean within network disconnection for all subjects
+  - must be numbers only, generated by clean script 
+ 
+> bash disconCalc.sh
+  - NOTE: this is a shell script wrapper for calcDiscon.py
+  - takes all subjects post nemo processing and calculates % disconnection per connected pair from atlas86. 
+  - outputs individual CSVs per subject and a master csv containing all subjects
+    > calcDiscon.py
+      - automatically called by disconCalc.sh
+      - has several atlas86 utilizng functions
+      - creates csvs for each subject and a master one
+
+
+#############
+# Section 6 #
+############# 
+
+> bash checkExFiles.sh
+    - starter script for if you want to create any checker scripts
+    - there are examples for if statements with 1 or 2+ arguments 
+    - If you were to make a similar script consider starting with this and then modifying it just because of the
+    weird syntax of the if statements 
+    
+> bash findMissingDirectories.sh
+    - good to use post download of files
+    - this returns all the ids in a list that are missing from the given list
+    - largely a sanity check 
+    - shows how to check if a directory exists
+    
+> bash getBluesky.sh
+    - script used to generate a list of scan IDs
+    - requires an input of a list in the format SUBID,MRI_DATE
+    - the input list is to be taken from a database
+    - has to be run from an account that has bluesky authorization 
+    
+> bash kill_all_for_users.sh
+    - script mentioned to stop all scripts that use multiple cores. 
+    - the need for is there because when you stop a multi-core script before it finished running, you are not able to quit all 
+    the threads. This takes and does it for you. otherwise you would just stop 1 core while many others keep running
+    - use with caution because other scripts you are running on donut will be stopped.
+
+> bash moveDirectoriesForListScript.sh
+    - helpful script to move over subject directories to the directory your project is in from somewhere else.
+    - used upon a mass download of files that is located in a different directory
+    - user inputs the filename for scan ids to move and the directory of where they are currently located.
+    - NOTE: this is script is to move whole directories, not just the files
+    
+> bash copyFileForListScript.sh
+        - helpful script to copy over a single type of file, for all subjects in a list, to the subject's directory within a project 
+        directory
+        - Helps with a mass download
+        - user inputs list of scan ids, the path to where the files you want to copy are, the file you want to copy
+        - will copy it to your current projects directory
+> bash checkFileExistsInSubjects.sh
+
+> bash cleanupScanDir.sh
+* look at file with Tom

@@ -1,0 +1,49 @@
+# Files:
+# t2flair.nii.gz
+
+all: lesion_mask.nii.gz
+
+    
+############################################
+#### LPA TOOL TO GET LESION MASK ###########
+############################################
+# Additional unzip step for lpa does not support compressed nifti
+flair.nii : t2flair.nii.gz
+	gzip -d <t2flair.nii.gz> flair.nii
+
+# Actual lpa steps
+lpa_mflair.nii: flair.nii
+	cp /shared/nonrestricted/connectome/dti_fa/DTI_processing_application/scripts/run_lpa.m run_lpa.m
+	/usr/local/bin/matlab -batch "run('run_lpa.m');exit;"
+	rm run_lpa.m
+#old command for line 17
+# /usr/local/bin/matlab -nodisplay -nosplash -nodesktop -r "run('run_lpa.m');exit;"
+#fills in donut holes and thresholds for lesions we are certain are lesions, based on the probability map produced by LPA. 
+
+lesion_mask.nii.gz: lpa_mflair.nii
+	cp /shared/nonrestricted/connectome/dti_fa/DTI_processing_application/scripts/double_threshold.py double_threshold.py
+	python double_threshold.py -l 0.25 -u 0.5 lpa_mflair.nii lpa_mask_prelim.nii.gz
+	fsl5.0-fslmaths lpa_mask_prelim.nii.gz -fillh26 lesion_mask.nii.gz
+	rm double_threshold.py
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

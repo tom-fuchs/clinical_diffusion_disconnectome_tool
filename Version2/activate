@@ -1,0 +1,16 @@
+source /etc/fsl/5.0/fsl.sh
+export FREESURFER_HOME=/shared/software/vendor/freesurfer/freesurfer-5.3.0_x86_64
+source $FREESURFER_HOME/SetUpFreeSurfer.sh
+export STUDYDIR=/shared/studies/nonregulated/connectome
+export SUBJECTSDIR=$STUDYDIR/Subjects
+export PATH=$PATH:$STUDYDIR/Pipelines/Examples/Scripts/
+export ANTSPATH=/usr/lib/ants/
+export PATH=$PATH:$ANTSPATH
+export DTIPATH=/shared/studies/nonregulated/connectome/dti_fa/DTI_processing_application/Version2
+export PATH=$PATH:$DTIPATH
+export path=`pwd`
+
+
+#echo "Enter path to project directory"
+#read in 
+#export path=$in

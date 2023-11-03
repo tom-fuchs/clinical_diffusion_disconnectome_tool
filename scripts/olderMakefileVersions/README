@@ -1,0 +1,16 @@
+If you need past verions of the Makefiles you have arrived to the right place:
+    
+   -> Makefile_V0 : Attempt to use LPA tool in it by Kira. Doesn't really work. Keeping it around because it has some starting points for using if/else in makefiles. In future versions, LPA tool has been outsourced to it's own makefile
+    
+   -> Makefile_V1 : Working version of the makefile done by Kira. Does not support processing that is missing T1_inp image
+   
+   
+   
+   
+   
+   
+   
+   
+   
+   Most recent Makefile:
+       located in dti_fa/DTI_processing_application/scripts/Makefile

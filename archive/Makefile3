@@ -1,0 +1,177 @@
+# Files:
+# t1_inp.nii.gz
+# t1.nii.gz
+# dti15.nii.gz
+# dti15.dcmdir.tgz
+
+all: t1_inp_cor.nii.gz t1_hires_brain_mask.nii.gz dti15_FA.nii.gz dti15_FA_to_MNI.nii.gz 
+
+
+# Also makes dti15.bvals
+dti15.bvecs: dti15.dcmdir.tgz
+	mkdir -p tmp
+	cd tmp && tar zxvf ../dti15.dcmdir.tgz && dcm2nii *
+	cd tmp/* && mv `find .| grep bvec` ../../dti15.bvecs 	
+	cd tmp/* && mv `find .| grep bval` ../../dti15.bvals  
+	rm -rf tmp
+
+# Also makes dti15_brain.nii.gz
+dti15_brain_mask.nii.gz: dti15_prelim_b0.nii.gz
+	bet dti15_prelim_b0.nii.gz dti15_brain -m -f 0.2
+
+########## to make t1_hires_brain_mask.nii.gz #########################
+
+t1_bet.nii.gz: t1.nii.gz
+	bet t1.nii.gz t1_bet -m
+
+#mni_bet.nii.gz: FSL_MNI152_FreeSurferConformed_1mm_head.nii.gz
+#	bet FSL_MNI152_FreeSurferConformed_1mm_head.nii.gz -m
+
+t1mniWarped.nii.gz: t1_bet.nii.gz MNI_brain.nii.gz
+	antsRegistration \
+	--dimensionality 3 \
+	--float 0 \
+	--output [t1mni,t1mni1Warp.nii.gz,t1mniWarped.nii.gz,t1mni0GenericAffine.mat] \
+	--interpolation Linear \
+	--winsorize-image-intensities [0.005,0.995] \
+	--use-histogram-matching 0 \
+	--initial-moving-transform [MNI_brain.nii.gz,t1_bet.nii.gz,1] \
+	--transform Affine[0.1] \
+	--metric MI[MNI_brain.nii.gz,t1_bet.nii.gz,1,32,Regular,0.25] \
+	--convergence [1000x500x250x100,1e-6,10] \
+	--shrink-factors 8x4x2x1 \
+	--smoothing-sigmas 3x2x1x0vox
+
+mni_mask.nii.gz: t1mniWarped.nii.gz
+	fslmaths t1mniWarped.nii.gz -bin mni_mask.nii.gz
+
+#t1mni_masked.nii.gz: t1mni1InverseWarp.nii.gz  
+	
+#mni_mask.nii.gz: t1_bet.nii.gz t1mni1Warp.nii.gz
+#	antsApplyTransforms \
+	-d 3 \
+	-i MNI_brain.nii.gz \
+	-r t1.nii.gz \
+	-o mni_mask.nii.gz \
+	-t t1mni1Warp.nii.gz \
+	-t t1mni0GenericAffine.mat \
+        -n Linear
+    	
+
+t1_hires_brain_mask.nii.gz: t1.nii.gz mni_mask.nii.gz
+	fslmaths t1.nii.gz -mas mni_mask.nii.gz t1_hires_brain_mask.nii.gz
+
+####################################################
+
+t1_inp_corrected.nii.gz: t1_inp.nii.gz
+	N4BiasFieldCorrection \
+	-d 3 \
+	-i t1_inp.nii.gz \
+	-o t1_inp_corrected.nii.gz 
+
+t1_inp_cor.nii.gz: t1_inp_corrected.nii.gz
+	N4BiasFieldCorrection \
+	-d 3 \
+	-i t1_inp_corrected.nii.gz \
+	-o t1_inp_cor.nii.gz 
+
+
+T1toMNI1Warp.nii.gz: t1_inp_cor.nii.gz FSL_MNI152_FreeSurferConformed_1mm_head.nii.gz 
+	antsRegistrationSyN.sh \
+	-d 3 \
+	-f FSL_MNI152_FreeSurferConformed_1mm_head.nii.gz \
+	-m t1_inp_cor.nii.gz \
+	-o T1toMNI \
+	-n 32
+
+dti15.acqp: 
+	echo "1 0 0 0.05" > dti15.acqp
+
+dti15.index: 
+	echo "1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1" > dti15.index
+
+############ eddy steps sometimes commented out because they are slow #####################
+
+dti15_eddy.nii.gz: dti15.nii.gz dti15_brain_mask.nii.gz dti15.acqp \
+	dti15.index dti15.bvecs
+	eddy --imain=dti15.nii.gz --mask=dti15_brain_mask.nii.gz --index=dti15.index \
+	--acqp=dti15.acqp --bvecs=dti15.bvecs --bvals=dti15.bvals --out=dti15_eddy
+
+##################################
+
+dti15_FA.nii.gz: dti15_eddy.nii.gz dti15_brain_mask.nii.gz dti15.bvecs dti15.bvals
+	dtifit -k dti15_eddy.nii.gz -o dti15 -m dti15_brain_mask.nii.gz -r dti15.bvecs -b dti15.bvals
+
+	
+dti15_b0.nii.gz: dti15_eddy.nii.gz
+	fslroi dti15_eddy.nii.gz dti15_b0.nii.gz 0 1
+
+dti15_prelim_b0.nii.gz: dti15.nii.gz
+	fslroi dti15.nii.gz dti15_prelim_b0.nii.gz 0 1
+
+
+t1_corrected.nii.gz: t1.nii.gz
+	N4BiasFieldCorrection \
+	-d 3 \
+	-i t1.nii.gz \
+	-o t1_corrected.nii.gz 
+
+t1_corrected2.nii.gz: t1_corrected.nii.gz
+	N4BiasFieldCorrection \
+	-d 3 \
+	-i t1_corrected.nii.gz \
+	-o t1_corrected2.nii.gz 
+
+
+t1hires_brain.nii.gz: t1_corrected2.nii.gz t1_hires_brain_mask.nii.gz
+	fslmaths t1_corrected2.nii.gz -mas t1_hires_brain_mask.nii.gz t1hires_brain.nii.gz
+
+dti15brain_to_t1hiresbrain1Warp.nii.gz: t1hires_brain.nii.gz dti15_brain.nii.gz
+	antsRegistration \
+--dimensionality 3 \
+--float 0 \
+--output [dti15brain_to_t1hiresbrain,dti15brain_to_t1hiresbrainWarped.nii.gz] \
+--interpolation Linear \
+--winsorize-image-intensities [0.005,0.995] \
+--use-histogram-matching 0 \
+--initial-moving-transform [t1hires_brain.nii.gz,dti15_brain.nii.gz,1] \
+--transform Rigid[0.1] \
+--metric MI[t1hires_brain.nii.gz,dti15_brain.nii.gz,1,32,Regular,0.25] \
+--convergence [1000x500x250x100,1e-6,10] \
+--shrink-factors 8x4x2x1 \
+--smoothing-sigmas 3x2x1x0vox \
+--transform Affine[0.1] \
+--metric MI[t1hires_brain.nii.gz,dti15_brain.nii.gz,1,32,Regular,0.25] \
+--convergence [1000x500x250x100,1e-6,10] \
+--shrink-factors 8x4x2x1 \
+--smoothing-sigmas 3x2x1x0vox \
+--transform SyN[0.1,3,0] \
+--metric MI[t1hires_brain.nii.gz,dti15_brain.nii.gz,1,4] \
+--convergence [100x70x50x5,1e-6,10] --shrink-factors 8x4x2x1 \
+--smoothing-sigmas 3x2x1x0vox 
+
+
+
+dti15_FA_to_MNI.nii.gz: dti15brain_to_t1hiresbrain1Warp.nii.gz T1toMNI1Warp.nii.gz \
+	dti15_FA.nii.gz T1toMNI0GenericAffine.mat dti15brain_to_t1hiresbrain0GenericAffine.mat 
+	antsApplyTransforms \
+	-d 3 \
+	-i dti15_FA.nii.gz \
+	-r FSL_MNI152_FreeSurferConformed_1mm_head.nii.gz \
+	-o dti15_FA_to_MNI.nii.gz \
+	-t T1toMNI1Warp.nii.gz \
+	-t T1toMNI0GenericAffine.mat \
+	-t dti15brain_to_t1hiresbrain1Warp.nii.gz \
+	-t dti15brain_to_t1hiresbrain0GenericAffine.mat 
+
+dti15_FA_to_t1hires.nii.gz: dti15brain_to_t1hiresbrain1Warp.nii.gz dti15_FA.nii.gz t1hires_brain.nii.gz
+	antsApplyTransforms \
+	-d 3 \
+	-i dti15_FA.nii.gz \
+	-r t1hires_brain.nii.gz \
+	-o dti15_FA_to_t1hires.nii.gz \
+	-t dti15brain_to_t1hiresbrain1Warp.nii.gz \
+	-t dti15brain_to_t1hiresbrain0GenericAffine.mat \
+	-v 0 \
+	-n Linear
+

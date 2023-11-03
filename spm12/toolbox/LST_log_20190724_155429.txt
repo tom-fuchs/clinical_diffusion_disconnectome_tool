@@ -1,0 +1,11 @@
+Load volumes ... ok.
+Input summary:
+Jobs: 1
+Coregister to reference images: 0
+--------------
+Job 1 of 1
+--------------
+Current directory is /shared/studies/nonregulated/connectome/functional_decline_predictor_tool/clinical_flair_nemo/sub1
+Skipped coregistration.
+Preprocessing of FLAIR (flair.nii.gz) ... ok.
+Warp brain position ... 

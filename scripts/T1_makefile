@@ -1,0 +1,57 @@
+# Files:
+# t1.nii.gz
+# dti.nii.gz
+# dti.dcmdir.tgz
+
+
+all: t1_inp.nii.gz 
+
+flair_reorient_robust.nii.gz: t2flair.nii.gz
+	flirt -in t2flair.nii.gz -ref t2flair.nii.gz -applyisoxfm 1.0 -out flair_iso.nii.gz
+	fslreorient2std flair_iso.nii.gz flair_reorient.nii.gz
+	robustfov -i flair_reorient.nii.gz -r flair_reorient_robust.nii.gz
+
+t1_reorient_robust.nii.gz: t1.nii.gz
+	fslreorient2std t1.nii.gz t1_reorient.nii.gz
+	robustfov -i t1_reorient.nii.gz -r t1_reorient_robust.nii.gz
+
+t1_reorient_robust_n4.nii.gz: t1_reorient_robust.nii.gz
+	N4BiasFieldCorrection \
+	-d 3 \
+	-i t1_reorient_robust.nii.gz \
+	-o t1_reorient_robust_n4.nii.gz 
+
+flair_reorient_robust_n4.nii.gz: flair_reorient_robust.nii.gz
+	N4BiasFieldCorrection \
+	-d 3 \
+	-i flair_reorient_robust.nii.gz \
+	-o flair_reorient_robust_n4.nii.gz 
+
+#register T2FLAIR to t1
+flair_to_t1.mat: flair_reorient_robust_n4.nii.gz t1_reorient_robust_n4.nii.gz
+	flirt -in flair_reorient_robust_n4.nii.gz -ref t1_reorient_robust_n4.nii.gz -dof 6 \
+	-out flair_to_t1.nii.gz -omat flair_to_t1.mat
+
+#apply reg, to get lesions mask into T1 space
+lesion_mask_t1.nii.gz: t1_reorient_robust_n4.nii.gz lesion_mask.nii.gz flair_to_t1.mat
+	flirt -in lesion_mask.nii.gz -ref t1_reorient_robust_n4.nii.gz \
+	-applyxfm -init flair_to_t1.mat -interp nearestneighbour \
+	-out lesion_mask_t1.nii.gz
+
+#brain extract T1
+t1_reorient_robust_n4_brain_mask.nii.gz: t1_reorient_robust_n4.nii.gz
+	bet t1_reorient_robust_n4.nii.gz t1_reorient_robust_n4_brain -B -f 0.3 -s -m
+
+#lesion inpainting block
+t1_inp.nii.gz: t1_reorient_robust_n4.nii.gz lesion_mask_t1.nii.gz \
+	t1_reorient_robust_n4_brain_mask.nii.gz
+	fslmaths lesion_mask_t1.nii.gz -binv lesion_mask_t1_inv.nii.gz
+	fslmaths t1_reorient_robust_n4_brain.nii.gz.nii.gz -mas lesion_mask_t1_inv.nii.gz nabt.nii.gz
+	fast -o nabtseg -g -N nabt.nii.gz
+	lesion_filling -i t1_reorient_robust_n4.nii.gz \
+	-o t1_inp.nii.gz \
+	-l lesion_mask_t1.nii.gz \
+	-w nabtseg_seg_2.nii.gz
+	rm nabt.nii.gz nabtseg_seg_0.nii.gz \
+	nabtseg_seg_1.nii.gz nabtseg_seg_2.nii.gz \
+	lesion_mask_t1_inv.nii.gz
